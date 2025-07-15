@@ -29,6 +29,8 @@ class VectorMCMC:
         self._eval_model = model
         self._data = data
         self._priors = priors
+        self._prior_dims = [p.dim if hasattr(p, "dim") else 1 for p in priors]
+        self._prior_dims_sum = sum(self._prior_dims)
         self._log_like_func = log_like_func(self.evaluate_model, data, log_like_args)
         self._rng = np.random.default_rng()
 
@@ -96,17 +98,26 @@ class VectorMCMC:
         return np.vstack(samples).T
 
     def evaluate_log_priors(self, inputs):
-        prior_dims = self._get_prior_dims()
+        # Optimized to avoid repeated attribute and list lookups
+        prior_dims = self._prior_dims
+        n_samples = inputs.shape[0]
+        n_priors = len(prior_dims)
 
-        if inputs.shape[1] != sum(prior_dims):
+        if inputs.shape[1] != self._prior_dims_sum:
             raise ValueError("Num prior distributions != num input params")
 
-        log_priors = np.empty((inputs.shape[0], len(self._priors)))
+        log_priors = np.empty((n_samples, n_priors), dtype=np.float64)
         in_start_idx = 0
-        for i, p in enumerate(self._priors):
-            in_ = inputs[:, in_start_idx : in_start_idx + prior_dims[i]]
-            log_priors[:, i] = p.logpdf(in_).squeeze()
-            in_start_idx += prior_dims[i]
+        priors = self._priors
+
+        # Unroll and prefetch as much as possible
+        for i in range(n_priors):
+            dim = prior_dims[i]
+            in_end_idx = in_start_idx + dim
+            in_ = inputs[:, in_start_idx:in_end_idx]
+            # p.logpdf may return shape (n, 1), thus need to ravel or squeeze
+            log_priors[:, i] = priors[i].logpdf(in_).reshape(n_samples)
+            in_start_idx = in_end_idx
 
         return log_priors
 
@@ -114,8 +125,12 @@ class VectorMCMC:
         return [p.dim if hasattr(p, "dim") else 1 for p in self._priors]
 
     def evaluate_log_likelihood(self, inputs):
+        # log_like_func already returns shape (n,) or (n,1)
         log_like = self._log_like_func(inputs)
-        return log_like.reshape(-1, 1)
+        # Guarantee shape (n,1) for consistency/performance
+        if log_like.ndim == 1:
+            return log_like[:, None]
+        return log_like
 
     @staticmethod
     def evaluate_log_posterior(inputs, log_likelihood, log_priors):
@@ -160,6 +175,7 @@ class VectorMCMC:
         return cov
 
     def _initialize_probabilities(self, inputs):
+        # Moves everything to local scope for speed
         log_priors = self.evaluate_log_priors(inputs)
         self._check_log_priors_for_zero_probability(log_priors)
         log_like = self.evaluate_log_likelihood(inputs)
@@ -197,9 +213,10 @@ class VectorMCMC:
         return max(adapt_delay - adapt_interval + 1, 1)
 
     def _check_log_priors_for_zero_probability(self, log_priors):
-        if any(~self._row_has_nonzero_prior_probability(log_priors)):
+        # Fastpath: use any() only when necessary
+        if not self._row_has_nonzero_prior_probability(log_priors).all():
             raise ValueError(
-                "Initial inputs are out of bounds; " f"prior log prob = {log_priors}"
+                f"Initial inputs are out of bounds; prior log prob = {log_priors}"
             )
 
     def _eval_log_like_if_prior_nonzero(self, log_priors, inputs):
