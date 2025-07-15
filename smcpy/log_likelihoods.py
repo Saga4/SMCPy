@@ -41,11 +41,16 @@ class Normal(BaseLogLike):
 
     @staticmethod
     def _calc_normal_log_like(output, data, var):
-        ssqe = np.sum((output - data) ** 2, axis=1)
+        # Vectorized sum of squared errors across last axis
+        diff = output - data
+        ssqe = np.einsum('ij,ij->i', diff, diff)  # More cache-efficient than np.sum(... ** 2, axis=1)
 
-        term1 = -np.log(2 * np.pi * var) * (output.shape[1] / 2.0)
-        term2 = -1 / 2.0 * ssqe / var
-
+        d = output.shape[1]
+        # Compute log(2*pi*var) away from main terms so it isn't repeated
+        log_term = np.log(2 * np.pi * var)
+        # Use precomputed log_term for term1 (avoid recomputation)
+        term1 = -0.5 * d * log_term
+        term2 = -0.5 * ssqe / var
         return term1 + term2
 
 
