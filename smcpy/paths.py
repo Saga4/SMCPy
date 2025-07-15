@@ -57,7 +57,8 @@ class PathBase:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             y = x.sum(axis=1, keepdims=True)
-            y[np.isnan(y)] = -np.inf  # probability 0/0 => 0
+            # probability 0/0 => 0, set nan to -inf
+            np.copyto(y, -np.inf, where=np.isnan(y))
         return y
 
 
@@ -80,8 +81,8 @@ class GeometricPath(PathBase):
 
     def logpdf(self, inputs, log_like, log_prior):
         log_p = self._get_proposal_logpdf(inputs, log_prior)
-        args = log_like, log_prior, log_p
-        return self._log_prob_sum(self._eval_target(*args, self.phi))
+        # Inline arguments for faster code
+        return self._log_prob_sum(self._eval_target(log_like, log_prior, log_p, self.phi))
 
     def inc_log_weights(self, inputs, log_like, log_prior):
         log_p = self._get_proposal_logpdf(inputs, log_prior)
@@ -91,22 +92,23 @@ class GeometricPath(PathBase):
         return self._log_prob_sum(np.hstack((numer, -denom)))
 
     def _eval_target(self, log_like, log_prior, log_p, phi):
-        prior_exp = min(1.0, phi / self._lambda)
-        prop_exp = max(0.0, (self._lambda - phi) / self._lambda)
+        # Compute exponents
+        _lambda = self._lambda
+        prior_exp = min(1.0, phi / _lambda)
+        prop_exp = max(0.0, (_lambda - phi) / _lambda)
 
-        target = np.hstack(
-            (
-                log_like * phi,
-                log_prior * prior_exp if prior_exp > 0 else np.zeros_like(log_p),
-                log_p * prop_exp if prop_exp > 0 else np.zeros_like(log_p),
-            )
-        )
+        # Compute weighted log components with optimized logic
+        col1 = log_like * phi  # always used
+        # Avoid if-else by multiplying by zero if expo == 0 (fastest)
+        col2 = log_prior * prior_exp
+        col3 = log_p * prop_exp
 
-        return target
+        # numpy column-stack for speed
+        # use np.column_stack instead of np.hstack, it's more appropriate here
+        return np.column_stack((col1, col2, col3))
 
     def _get_proposal_logpdf(self, inputs, log_prior):
-        return (
-            self._proposal.logpdf(inputs).reshape(-1, 1)
-            if self._proposal
-            else log_prior
-        )
+        if self._proposal is not None:
+            return self._proposal.logpdf(inputs).reshape(-1, 1)
+        else:
+            return log_prior
