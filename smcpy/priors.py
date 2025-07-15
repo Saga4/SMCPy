@@ -182,13 +182,20 @@ class ImproperConstrainedUniform:
         self._verify_inputs()
 
     def logpdf(self, samples):
-        constr = self._constraint_function(samples).astype(int).reshape(-1, 1)
+        # Constraint function as boolean
+        constr = self._constraint_function(samples)
         if self._bounds is not None:
-            bnd = self._are_within_bounds(samples)
-            constr *= bnd
-        constr = np.where(constr == 0, -np.inf, constr)
-        constr[constr != -np.inf] = 0
-        return constr
+            # More efficient bounds check
+            b = self._bounds
+            # Vectorized bounds check using np.logical_and.reduce
+            in_bounds = np.logical_and(np.all(samples >= b[0], axis=1),
+                                       np.all(samples <= b[1], axis=1))
+            # Combine constraint and bounds
+            constr = np.logical_and(constr, in_bounds)
+
+        # Final logpdf: -inf outside, 0 inside
+        out = np.where(constr, 0.0, -np.inf).reshape(-1, 1)
+        return out
 
     def rvs(self, num_samples, random_state=None):
         self._raise_error_if_rng_is_not_numpy_generator(random_state)
