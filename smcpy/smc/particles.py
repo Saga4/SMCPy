@@ -78,6 +78,7 @@ class Particles(Checks):
         self._set_log_likes(log_likes)
         self._set_and_norm_log_weights(log_weights)
 
+        # Compute and store total unnormalized log weight
         self.attrs = {"total_unnorm_log_weight": self._logsum(log_weights)}
 
     @property
@@ -153,7 +154,38 @@ class Particles(Checks):
         """
         Returns a copy of the entire step class.
         """
-        return copy.deepcopy(self)
+        cls = self.__class__
+        # Shallow copy basic properties; arrays are copied using .copy() if writable.
+        new = cls.__new__(cls)
+        new._param_names = self._param_names
+        new._num_particles = self._num_particles
+
+        # Defensive copy (in case the arrays could be mutated elsewhere)
+        # These are np.arrays after calling _set_params
+        if hasattr(self, "_params"):
+            new._params = self._params.copy()
+        if hasattr(self, "_log_likes"):
+            new._log_likes = self._log_likes.copy()
+        if hasattr(self, "_log_weights"):
+            new._log_weights = self._log_weights.copy()
+        if hasattr(self, "_weights"):
+            new._weights = self._weights.copy()
+
+        # Copy attrs dict (shallow is fine since value is a scalar)
+        if hasattr(self, "attrs"):
+            new.attrs = dict(self.attrs)
+
+        # Copy any other attributes created by Checks parent, if needed
+        for key, value in self.__dict__.items():
+            if not hasattr(new, key):
+                if isinstance(value, np.ndarray):
+                    setattr(new, key, value.copy())
+                elif isinstance(value, dict):
+                    setattr(new, key, dict(value))
+                else:
+                    setattr(new, key, value)
+
+        return new
 
     def compute_ess(self):
         """
