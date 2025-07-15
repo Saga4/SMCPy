@@ -119,7 +119,8 @@ class VectorMCMC:
 
     @staticmethod
     def evaluate_log_posterior(inputs, log_likelihood, log_priors):
-        return np.sum(np.hstack((log_likelihood, log_priors)), axis=1)
+        # Fast: direct sum over axis=1, avoids temporary hstack
+        return (log_likelihood + log_priors).sum(axis=1)
 
     @rank_zero_output_only
     def proposal(self, inputs, cov):
@@ -143,7 +144,8 @@ class VectorMCMC:
         new_log_post = self.evaluate_log_posterior(
             new_inputs, new_log_like, new_log_priors
         )
-        return np.exp(new_log_post - old_log_post).reshape(-1, 1)
+        # Fast: avoid reshape, np.exp will always return the correct shape for diff of two 1D arrays
+        return np.exp(new_log_post - old_log_post)[:, None]
 
     @rank_zero_output_only
     def get_rejections(self, acceptance_ratios):
