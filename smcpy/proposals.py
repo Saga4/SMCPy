@@ -13,6 +13,9 @@ class MultivarIndependent:
         """
         self._dist_list = args
         self._dims = self._get_dims()
+        # Precompute split indices for fast partitioning
+        # Store as tuple for slight access optimization
+        self._split_indices = tuple(np.cumsum(self._dims)[:-1])
 
     def rvs(self, num_samples, random_state=None):
         return np.hstack(
@@ -31,4 +34,5 @@ class MultivarIndependent:
         return [d.rvs(1).size for d in self._dist_list]
 
     def _partition_inputs(self, inputs):
-        return np.split(inputs, np.cumsum(self._dims)[:-1], axis=1)
+        # Use precomputed split indices for fast split
+        return np.split(inputs, self._split_indices, axis=1)
