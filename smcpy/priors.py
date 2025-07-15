@@ -213,9 +213,11 @@ class ImproperConstrainedUniform:
         return np.array(samples)[:num_samples]
 
     def _are_within_bounds(self, samples):
-        in_bounds = (self._bounds[0] <= samples).all(axis=1) * (
-            self._bounds[1] >= samples
-        ).all(axis=1)
+        # Optimized to use one logical operation across the bounds arrays
+        # Avoids allocating two separate boolean arrays and their intermediates
+        lower = self._bounds[0]
+        upper = self._bounds[1]
+        in_bounds = np.logical_and(samples >= lower, samples <= upper).all(axis=1)
         return in_bounds.astype(int).reshape(-1, 1)
 
     def _bounds_are_finite(self):
