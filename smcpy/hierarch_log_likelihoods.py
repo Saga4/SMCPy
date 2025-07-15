@@ -33,17 +33,29 @@ class ApproxHierarch(BaseLogLike):
 
     def __call__(self, inputs):
         self._override_model_wrapper(inputs)
-        log_like = np.full((inputs.shape[0], len(self._data)), -np.inf)
-        for i, d in enumerate(self._data):
+        # Preallocate output likelihoods shape: (n_inputs, n_random_effects)
+        n_inputs = inputs.shape[0]
+        n_rand_effs = len(self._data)
+        log_like = np.full((n_inputs, n_rand_effs), -np.inf)
+        mlls = self._args[0]      # marginal log-likelihoods (list-like)
+        log_priors = self._args[1] # shape: (n_rand_effs, n_posterior_samples)
+
+        for i, (d, log_prior, mll) in enumerate(zip(self._data, log_priors, mlls)):
+            # Vectorized evaluation for each random effect
+            # _get_output(d): d.shape = (n_samples, params)
             log_conditionals = self._get_output(d)
-            log_priors = self._args[1][i]
-            mll = self._args[0][i]
-            log_like[:, i] = (
-                mll - np.log(d.shape[0]) + self._logsum(log_conditionals - log_priors)
-            )
-        return log_like.sum(axis=1).reshape(-1, 1)
+            # log_prior: shape (n_samples,), log_conditionals: (n_inputs, n_samples)
+            # Broadcasting log_conditionals - log_prior
+            vals = log_conditionals - log_prior
+            # logsumexp along samples axis (axis=1): much faster and more stable numerically
+            ll = mll - np.log(d.shape[0]) + self._logsumexp(vals)
+            log_like[:, i] = ll
+
+        # Avoid reshaping if not required, just ensure 2D column vector output
+        return log_like.sum(axis=1)[:, None]
 
     def _override_model_wrapper(self, inputs):
+        # NOTE: Caches the model relevant to inputs, saving a per-sample call
         model = self._model(inputs)
         self.set_model_wrapper(lambda dummy, x: model(x))
 
@@ -56,6 +68,18 @@ class ApproxHierarch(BaseLogLike):
         Z0 = Z[:, [0]]
         Z_shifted = Z[:, 1:] - Z0
         return Z0.flatten() + np.log(1 + np.sum(np.exp(Z_shifted), axis=1))
+
+    @staticmethod
+    def _logsumexp(Z):
+        """
+        Numerically stable logsumexp along columns (axis=1)
+        Equivalent to log(sum(exp(Z), axis=1)), but stable for large/small numbers.
+        """
+        Z = np.asarray(Z)
+        # Z: (n_inputs, n_samples)
+        maxZ = np.max(Z, axis=1, keepdims=True)
+        sumexp = np.exp(Z - maxZ).sum(axis=1)
+        return (maxZ[:, 0] + np.log(sumexp))
 
 
 class MVNHierarchModel:
