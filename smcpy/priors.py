@@ -110,9 +110,11 @@ class ImproperCov:
     def logpdf(self, samples):
         self._check_samples_shape(samples)
         covs = self._assemble_covs(samples)
-        pdf = np.array([self._is_pos_semidef(x) for x in covs]).reshape(-1, 1)
-        pdf = np.where(pdf == 0, -np.inf, pdf)
-        pdf[pdf != -np.inf] = 0
+        # Vectorized Cholesky: pass/fail for each matrix
+        pos_semi_mask = _batch_cholesky_ok(covs)
+        # -inf for failures, 0 for pass
+        pdf = np.full((samples.shape[0], 1), -np.inf, dtype=np.float64)
+        pdf[pos_semi_mask, 0] = 0
         return pdf
 
     def rvs(self, num_samples, random_state=None):
@@ -123,10 +125,12 @@ class ImproperCov:
         return cov[:, idx1, idx2]
 
     def _assemble_covs(self, samples):
-        covs = np.zeros((samples.shape[0], self._ncols, self._ncols))
-        idx1, idx2 = np.triu_indices(self._ncols)
+        # Vectorized assignment for upper triangle, and mirror for lower triangle
+        n = self._ncols
+        covs = np.zeros((samples.shape[0], n, n), dtype=samples.dtype)
+        idx1, idx2 = np.triu_indices(n)
         covs[:, idx1, idx2] = samples
-        covs += np.transpose(np.triu(covs, 1), axes=(0, 2, 1))
+        covs[:, idx2, idx1] = samples  # Fill lower triangle from upper
         return covs
 
     @staticmethod
@@ -245,3 +249,21 @@ class ImproperConstrainedUniform:
         if rng is not None and not isinstance(rng, np.random._generator.Generator):
             raise TypeError("Random number generator must be a numpy generator.")
         return None
+
+# New fast helper: batch Cholesky test for positive semidefinite
+def _batch_cholesky_ok(arr):
+    try:
+        # The attempt will run Cholesky for all matrices at once (NumPy >=1.20)
+        # If NumPy < 1.20, fall back to slow method
+        chol = np.linalg.cholesky(arr)
+        return np.ones(arr.shape[0], dtype=bool)
+    except np.linalg.LinAlgError:
+        # fallback (batch failed), check each matrix individually
+        out = np.empty(arr.shape[0], dtype=bool)
+        for i in range(arr.shape[0]):
+            try:
+                np.linalg.cholesky(arr[i])
+                out[i] = True
+            except np.linalg.LinAlgError:
+                out[i] = False
+        return out
