@@ -70,9 +70,14 @@ class MultiSourceNormal(Normal):
         """
         super().__init__(model, data, args)
         self._num_nones = self._args[1].count(None)
-
         if sum(args[0]) != data.shape[0]:
             raise ValueError("data segments in args[0] must sum to dim of data")
+
+        # Precompute which args are None and the indices for advanced slicing
+        self._std_is_none_mask = [std is None for std in self._args[1]]
+        self._none_indexes = [i for i, std in enumerate(self._args[1]) if std is None]
+        self._fixed_indexes = [i for i, std in enumerate(self._args[1]) if std is not None]
+        self._fixed_values = [std for std in self._args[1] if std is not None]
 
     def __call__(self, inputs):
         std_devs, inputs = self._process_fixed_and_variable_std(inputs)
@@ -101,19 +106,32 @@ class MultiSourceNormal(Normal):
         Identifies standard deviations to be estimated and pulls appropriate
         samples from the input array.
         """
-        std_devs = self._args[1]
-        new_std_devs = []
-        j = 0
-        for i, std in enumerate(std_devs):
-            if std is None:
-                new_std_devs.append(inputs[:, -self._num_nones + j])
-                j += 1
-            else:
-                new_std_devs.append(std)
+        num_samples = inputs.shape[0]
+        std_length = len(self._std_is_none_mask)
+        # Preallocate all stds and fill only needed
+        new_std_devs = [None] * std_length
 
-        new_inputs = inputs.copy()
         if self._num_nones > 0:
-            new_inputs = new_inputs[:, : -self._num_nones]
+            # Vectorized: get last M columns for variable stds
+            std_cols = inputs[:, -self._num_nones:]  # shape=(num_samples, M)
+            std_cols_T = std_cols.T  # shape=(M, num_samples)
+            # Place fixed stds
+            fi, fv = 0, 0
+            ni = 0
+            for i, is_none in enumerate(self._std_is_none_mask):
+                if is_none:
+                    # assign column as output shape
+                    new_std_devs[i] = std_cols_T[ni]
+                    ni += 1
+                else:
+                    new_std_devs[i] = self._args[1][i]
+            # Remove last M columns (variable std cols)
+            new_inputs = inputs[:, :-self._num_nones]
+        else:
+            # Only fixed stds; fill directly
+            # All elements of new_std_devs are just self._args[1][i]
+            new_std_devs = self._args[1]
+            new_inputs = inputs
 
         return tuple(new_std_devs), new_inputs
 
