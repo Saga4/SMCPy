@@ -77,8 +77,18 @@ class MVNHierarchModel:
         return cov
 
     def _compute_squared_mahalanobis(self, data):
-        delta = data - np.expand_dims(self._inputs, 1)
-        return np.einsum("inj,ijk,ink->in", delta, self._VI, delta)
+        # data shape: (r, n, d), self._inputs shape: (r, d)
+        # Broadcast subtraction to avoid memory copy in np.expand_dims
+        # delta[i, n, d] = data[i, n, d] - self._inputs[i, d]
+        delta = data - self._inputs[:, None, :]
+        # Efficient batch Mahalanobis: (delta @ VI @ delta^T) for each i, n
+        # (for each batch i: delta[i, n, d] x VI[i, d, d])
+        # tensordot over last axis of delta and first axis of VI (for each batch)
+        # result is (r, n, d) x (r, d, d) => (r, n, d)
+        # then inner product along last axis with delta
+        mid = np.matmul(delta, self._VI) # (r, n, d)
+        result = np.einsum('r n d, r n d -> r n', mid, delta)
+        return result
 
     def _separate_inputs(self, inputs):
         p = int(-3 / 2 + np.sqrt(9 / 4 + 2 * inputs.shape[1]))
