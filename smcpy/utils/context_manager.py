@@ -14,9 +14,12 @@ class ContextManager:
     @classmethod
     def get_contexts(cls):
         """Returns context stack"""
-        if not hasattr(cls._contexts, "stack"):
+        # Use try-except to avoid repeated hasattr checks
+        try:
+            return cls._contexts.stack
+        except AttributeError:
             cls._contexts.stack = []
-        return cls._contexts.stack
+            return cls._contexts.stack
 
     @classmethod
     def get_context(cls):
