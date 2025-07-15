@@ -34,6 +34,7 @@ import numpy as np
 import copy
 import functools
 from smcpy.utils.checks import Checks
+from scipy.special import logsumexp
 
 
 def package_for_user(func):
@@ -53,6 +54,11 @@ def package_for_user(func):
             return {name: output for name, output in zip(names, outputs)}
 
     return wrapper
+
+
+@staticmethod
+def _logsum(Z):
+    return logsumexp(Z)
 
 
 class Particles(Checks):
