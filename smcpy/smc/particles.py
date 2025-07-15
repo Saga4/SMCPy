@@ -190,8 +190,21 @@ class Particles(Checks):
         """
         Estimates the covariance matrix.
         """
-        cov = np.cov(self.params.T, ddof=0, aweights=self.weights.flatten())
+        X = self.params       # shape: (n_particles, n_params)
+        w = self.weights      # shape: (n_particles, 1)
 
+        # Ensure w is 1d
+        if w.ndim > 1:
+            w = w.ravel()
+
+        # Weighted mean: shape (n_params,)
+        mean = np.average(X, axis=0, weights=w)
+        X_centered = X - mean  # (n_particles, n_params)
+        w_sum = w.sum()
+        # Weighted covariance: (n_params, n_params)
+        cov = (X_centered * w[:, None]).T @ X_centered / w_sum
+
+        # Ensure shape matches upstream cov logic
         if cov.shape == ():
             cov = cov.reshape(1, 1)
 
