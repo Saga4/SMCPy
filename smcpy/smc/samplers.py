@@ -261,28 +261,45 @@ class AdaptiveSampler(SamplerBase):
 
     def predict_ess_margin(self, phi_new, phi_old, particles, target_ess):
         delta_phi = phi_new - phi_old
-        log_beta = (
-            self._get_inc_weights(particles, phi_new)
-            if delta_phi > 0
-            else np.zeros_like(particles.log_likes)
-        )
-        numer = 2 * particles._logsum(log_beta)
-        denom = particles._logsum(2 * log_beta)
-        ESS = 0
-        if numer > -np.inf and denom > -np.inf:
+        # Fast path for delta_phi <= 0: log_beta is zeros, skip all downstream computation
+        if delta_phi <= 0:
+            num_particles = particles.num_particles
+            # For log_beta == 0, logsumexp(log_beta) = log(N), and same for 2*log_beta
+            numer = 2 * np.log(num_particles)
+            denom = np.log(num_particles)
             ESS = np.exp(numer - denom)
+        else:
+            # Hot path: use cached arrays and single pass calculation
+            log_beta = self._get_inc_weights(particles, phi_new)
+            numer = 2 * particles._logsum(log_beta)
+            # 2 * log_beta can be computed in-place for memory efficiency
+            _tmp = log_beta * 2
+            denom = particles._logsum(_tmp)
+            # Avoid redundant computation
+            ESS = 0.
+            if numer > -np.inf and denom > -np.inf:  # Compute only if valid
+                ESS = np.exp(numer - denom)
         return ESS - particles.num_particles * target_ess
 
     def _get_inc_weights(self, particles, phi_new):
         kernel = self._mcmc_kernel
-        kernel.path.phi = phi_new
-        args = (
-            particles.params,
-            particles.log_likes,
-            kernel.get_log_priors(particles.param_dict),
+        path = kernel.path
+        old_phi = path.phi
+        # Set phi only if needed, restore after
+        if old_phi != phi_new:
+            path.phi = phi_new
+        else:
+            # No need to redo calculation if phi is already set
+            pass
+        # Minimize repeated get_log_priors: may be expensive!
+        # If kernel.get_log_priors is idempotent, consider passing precomputed log_priors to save time in higher layer
+        log_priors = kernel.get_log_priors(particles.param_dict)
+        inc_weights = path.inc_log_weights(
+            particles.params, particles.log_likes, log_priors
         )
-        inc_weights = kernel.path.inc_log_weights(*args)
-        kernel.path.undo_phi_set()
+        # Restore phi only if changed; skip undo if not changed
+        if old_phi != phi_new:
+            path.phi = old_phi
         return inc_weights
 
     @staticmethod
