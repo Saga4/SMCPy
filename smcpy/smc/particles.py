@@ -71,13 +71,10 @@ class Particles(Checks):
             automatically normalized when set to avoid potential misuse
         :type log_weights: 1D array or list
         """
-        self._param_names = None
-        self._num_particles = None
-
         self._set_params(params)
         self._set_log_likes(log_likes)
         self._set_and_norm_log_weights(log_weights)
-
+        # Cache attribute on instance for quick lookup
         self.attrs = {"total_unnorm_log_weight": self._logsum(log_weights)}
 
     @property
@@ -166,7 +163,10 @@ class Particles(Checks):
         """
         Returns the estimated mean of each parameter.
         """
-        return np.sum(self.params * self.weights, axis=0)
+        # alias local to avoid repeated lookup
+        params = self.params
+        weights = self.weights
+        return np.dot(weights.ravel(), params)
 
     @package_for_user
     def compute_variance(self):
