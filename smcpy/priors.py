@@ -11,28 +11,25 @@ class ImproperUniform:
     """
 
     def __init__(self, lower_bound=None, upper_bound=None):
-        self._lower = lower_bound
-        self._upper = upper_bound
-
-        if self._lower is None:
-            self._lower = -np.inf
-
-        if self._upper is None:
-            self._upper = np.inf
+        self._lower = -np.inf if lower_bound is None else lower_bound
+        self._upper = np.inf if upper_bound is None else upper_bound
 
     def logpdf(self, x):
         """
         :param x: input array
         :type x: 1D or 2D array; if 2D, must squeeze to 1D
         """
-        array_x = np.array(x).squeeze()
-
+        array_x = np.asarray(x)
         if array_x.ndim > 1:
-            raise ValueError("Input array must be 1D or must squeeze to 1D")
+            array_x = array_x.squeeze()
+            if array_x.ndim > 1:
+                raise ValueError("Input array must be 1D or must squeeze to 1D")
 
-        log_pdf = np.full(array_x.size, -np.inf)
         in_bounds = (array_x >= self._lower) & (array_x <= self._upper)
-        return np.where(in_bounds, 0, log_pdf)
+        # Fast path: fill with zeros and set out-of-bounds to -np.inf
+        log_pdf = np.zeros(array_x.size, dtype=float)
+        log_pdf[~in_bounds] = -np.inf
+        return log_pdf
 
 
 class InvWishart:
