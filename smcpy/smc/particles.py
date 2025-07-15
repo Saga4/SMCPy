@@ -159,7 +159,12 @@ class Particles(Checks):
         """
         Computes the effective sample size (ess) of the step based on log weight
         """
-        return 1 / np.sum(self.weights**2)
+        # Avoid allocating a new array for self.weights**2 by using np.square and np.sum out param
+        # This reduces memory allocation and may be slightly faster for large arrays.
+        weights = self.weights  # Should already be a 2D column vector (N, 1)
+        # Faster path: work directly with (N,) view if possible
+        w_flat = weights.ravel()  # (N,)
+        return 1. / np.dot(w_flat, w_flat)
 
     @package_for_user
     def compute_mean(self):
