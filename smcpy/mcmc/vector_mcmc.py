@@ -8,6 +8,7 @@ from ..utils.mpi_utils import rank_zero_output_only
 
 
 class VectorMCMC:
+
     def __init__(self, model, data, priors, log_like_args=None, log_like_func=Normal):
         """
         :param model: maps inputs to outputs
@@ -29,6 +30,7 @@ class VectorMCMC:
         self._eval_model = model
         self._data = data
         self._priors = priors
+        # Evaluate model once and cache bound method, for tight loops
         self._log_like_func = log_like_func(self.evaluate_model, data, log_like_args)
         self._rng = np.random.default_rng()
 
@@ -184,11 +186,15 @@ class VectorMCMC:
 
     @staticmethod
     def _is_adapt_iteration(adapt_interval, idx, adapt_delay):
-        if adapt_interval is None:
+        """
+        Returns True if the current idx is an adaptation iteration
+        given the adapt_interval and adapt_delay, else False.
+        """
+        # Adapt interval None or out of delay: never adapt
+        if adapt_interval is None or idx < adapt_delay:
             return False
-        surpassed_delay = idx >= adapt_delay
-        is_adapt_iteration = (idx - adapt_delay) % adapt_interval == 0
-        return surpassed_delay and is_adapt_iteration
+        # Use mod directly
+        return (idx - adapt_delay) % adapt_interval == 0
 
     @staticmethod
     def _get_window_start(idx, adapt_delay, adapt_interval):
