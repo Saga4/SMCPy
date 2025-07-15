@@ -29,6 +29,8 @@ class VectorMCMC:
         self._eval_model = model
         self._data = data
         self._priors = priors
+        # Use a direct method reference for faster calls in MCMC
+        self._evaluate_model = self._eval_model if hasattr(model, '__call__') else lambda x: model(x)
         self._log_like_func = log_like_func(self.evaluate_model, data, log_like_args)
         self._rng = np.random.default_rng()
 
@@ -86,7 +88,9 @@ class VectorMCMC:
         return chain
 
     def evaluate_model(self, inputs):
-        return self._eval_model(inputs)
+        # Cache model reference locally to avoid repeated attribute access
+        model = self._eval_model
+        return model(inputs)
 
     @rank_zero_output_only
     def sample_from_priors(self, num_samples):
