@@ -222,15 +222,19 @@ class VectorMCMC:
         Code implementation: https://stackoverflow.com/a/63131250/4733085
         """
         try:
+            # Cholesky decomposition - should succeed for good cov matrices
             return np.linalg.cholesky(cov)
-        except:
+        except np.linalg.LinAlgError:
             warnings.warn(
                 "Covariance matrix is not positive semi-definite; "
                 "forcing negative eigenvalues to zero and rebuilding "
                 "covariance matrix."
             )
+            # Only one spectral decomposition is necessary
             eigval, eigvec = np.linalg.eigh(cov)
-            eigval[eigval < 0] = 0
-            cov = (eigvec @ np.diag(eigval)) @ eigvec.T
-            cov += 1e-14 * np.eye(len(eigval))
-            return np.linalg.cholesky(cov)
+            np.maximum(eigval, 0, out=eigval)  # In-place, faster than eigval[eigval < 0] = 0
+            # Efficient matrix multiplication: eigvec @ diag(eigval) @ eigvec.T
+            np_diag = np.diag(eigval)
+            cov_psd = eigvec @ np_diag @ eigvec.T
+            np.fill_diagonal(cov_psd, np.diag(cov_psd) + 1e-14)  # Add to diagonal in-place
+            return np.linalg.cholesky(cov_psd)
