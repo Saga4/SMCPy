@@ -31,6 +31,10 @@ class VectorMCMC:
         self._priors = priors
         self._log_like_func = log_like_func(self.evaluate_model, data, log_like_args)
         self._rng = np.random.default_rng()
+        # Precompute lookup for dim to avoid repeated hasattr calls
+        self._prior_dims = tuple(
+            getattr(p, "dim", 1) for p in priors
+        )
 
     @property
     def rng(self):
@@ -111,7 +115,8 @@ class VectorMCMC:
         return log_priors
 
     def _get_prior_dims(self):
-        return [p.dim if hasattr(p, "dim") else 1 for p in self._priors]
+        # Return the cached dims tuple as a list
+        return list(self._prior_dims)
 
     def evaluate_log_likelihood(self, inputs):
         log_like = self._log_like_func(inputs)
