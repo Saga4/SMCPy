@@ -54,8 +54,8 @@ class PathBase:
 
     @staticmethod
     def _log_prob_sum(x):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        # use numpy's error state to ignore invalid sum warnings and assign -inf where needed
+        with np.errstate(invalid="ignore"):
             y = x.sum(axis=1, keepdims=True)
             y[np.isnan(y)] = -np.inf  # probability 0/0 => 0
         return y
