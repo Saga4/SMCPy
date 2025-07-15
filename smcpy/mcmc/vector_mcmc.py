@@ -29,7 +29,9 @@ class VectorMCMC:
         self._eval_model = model
         self._data = data
         self._priors = priors
-        self._log_like_func = log_like_func(self.evaluate_model, data, log_like_args)
+        # Cache evaluate_model for fast repeated function pointer access
+        evaluate_model = self.evaluate_model
+        self._log_like_func = log_like_func(evaluate_model, data, log_like_args)
         self._rng = np.random.default_rng()
 
     @property
@@ -192,9 +194,11 @@ class VectorMCMC:
 
     @staticmethod
     def _get_window_start(idx, adapt_delay, adapt_interval):
+        # Micro-optimization: check the dominant branch first
         if idx >= adapt_delay + adapt_interval:
             return adapt_delay + 1
-        return max(adapt_delay - adapt_interval + 1, 1)
+        start = adapt_delay - adapt_interval + 1
+        return start if start > 1 else 1
 
     def _check_log_priors_for_zero_probability(self, log_priors):
         if any(~self._row_has_nonzero_prior_probability(log_priors)):
