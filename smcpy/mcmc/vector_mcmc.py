@@ -154,9 +154,13 @@ class VectorMCMC:
         if self._is_adapt_iteration(adapt_interval, idx, adapt_delay):
             start = self._get_window_start(idx, adapt_delay, adapt_interval)
             end = idx + 1
+            # chain shape: (n_walkers, n_param, n_steps)
+            # we want to flatten all walkers and steps in the window for each param
+            # instead of list-comprehension + flatten, directly reshape efficiently using numpy
             n_param = chain.shape[1]
-            flat_chain = [chain[:, i, start:end].flatten() for i in range(n_param)]
-            return np.cov(flat_chain)
+            chain_window = chain[:, :, start:end]  # shape: (n_walkers, n_param, n_window_steps)
+            chain_flat = chain_window.transpose(1,0,2).reshape(n_param, -1)
+            return np.cov(chain_flat)
         return cov
 
     def _initialize_probabilities(self, inputs):
@@ -186,9 +190,9 @@ class VectorMCMC:
     def _is_adapt_iteration(adapt_interval, idx, adapt_delay):
         if adapt_interval is None:
             return False
-        surpassed_delay = idx >= adapt_delay
-        is_adapt_iteration = (idx - adapt_delay) % adapt_interval == 0
-        return surpassed_delay and is_adapt_iteration
+        if idx < adapt_delay:
+            return False
+        return (idx - adapt_delay) % adapt_interval == 0
 
     @staticmethod
     def _get_window_start(idx, adapt_delay, adapt_interval):
